@@ -10,8 +10,7 @@ class RandomSurrogate() extends SmboModel {
   override def next(grid: DenseMatrix[Double]): DenseVector[Double] = {
     val hypers = new Array[Double](grid.rows)
     for (h <- 0 until grid.rows){
-      hypers(h)=Random.nextDouble() //TODO
-      //hypers(h)=0.0
+      hypers(h)=Random.nextDouble()
     }
     return DenseVector(hypers)
   }

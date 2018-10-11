@@ -1,11 +1,9 @@
 package org.apache.spark.ml.tuning
 
 import breeze.linalg.{DenseMatrix, DenseVector, argmin}
-import org.apache.spark.ml.classification.{LinearSVC, OneVsRest}
 import org.apache.spark.ml.evaluation.Evaluator
 import org.apache.spark.ml.{Estimator, Model}
 import org.apache.spark.ml.param.{Param, ParamMap}
-import org.apache.spark.ml.recommendation.ALSModel
 import org.apache.spark.sql.{Dataset, Row}
 
 import scala.collection.mutable.ArrayBuffer
@@ -25,112 +23,70 @@ class SmboLoop (initialModel: SmboModel, estimatorS: Estimator[_], evaluator: Ev
   var lossHistory : ArrayBuffer[Double] = new ArrayBuffer[Double]
   var modelTransformations : DenseVector[Double] => Array[Any] = x=>x.toArray.asInstanceOf[Array[Any]]
   var feedbackTransformations : DenseVector[Double] => Array[Double] = x=>x.toArray
+
+  //Define the model to be trained and validated
   def setModel(model: SmboModel): this.type ={
     this.model = model
     this
   }
 
+  //Set training data
   def setTraining(training: Dataset[_]): this.type ={
     this.training = training
     this
   }
 
+  //Set validation data
   def setTesting(testing: Dataset[_]): this.type ={
     this.testing = testing
     this
   }
 
-  //Form warm-starting a surrogate model
+  //Form warm-starting a surrogate model with a history of (hyperparameter, loss)
   def setHistory(hypers: ArrayBuffer[Array[Double]], loss: ArrayBuffer[Double]): this.type ={
     this.hyperHistory = hypers
     this.lossHistory = loss
     this
   }
 
+  //Set transformation of parameters from surrogate model (scale 0-1) to the actual values used in the algorithm
+  //Also, optionally, set transformations to impute values of certain hyperparameters (e.g. inactive) to give as feedback
+  //to the surrogate
   def setTransformations(model: DenseVector[Double] => Array[Any],feedback: DenseVector[Double] => Array[Double] = null): this.type ={
     this.modelTransformations = model
     if (feedback!=null) this.feedbackTransformations = feedback
     this
   }
 
-  //To initialize the feedback history when no warm-starting is present
+  //To initialize the feedback history
   def randomStart() : Unit = {
     val points = new DenseVector[Double](params.length)
     for (i<- 0 until params.length){
       points(i) = Random.nextDouble()
     }
     println("Random point suggested: ")
+    val init = System.currentTimeMillis()
     println(points.toString())
 
-    var i = 0
     val transformed = modelTransformations(points)
-//    println("Random points transformed: ")
-//    transformed.foreach(x=> println(x.toString))
-//TODO: Neural networks (784 or 780 first layer)
-    /*var layers : Array[Int] = null
-    println("Nlayers is: "+transformed(1))
-    if(transformed(1)==6){
-    layers = Array[Int](nFeat, transformed(2).asInstanceOf[Int], transformed(3).asInstanceOf[Int],
-  transformed(4).asInstanceOf[Int], transformed(5).asInstanceOf[Int], nClass)
-    }
-    else if (transformed(1)==5){
-      layers = Array[Int](nFeat, transformed(2).asInstanceOf[Int], transformed(3).asInstanceOf[Int],
-        transformed(4).asInstanceOf[Int], nClass)
-    }
-    else if (transformed(1)==4){
-      layers = Array[Int](nFeat, transformed(2).asInstanceOf[Int], transformed(3).asInstanceOf[Int], nClass)
-    }
-    else if(transformed(1)==3){
-        layers = Array[Int](nFeat, transformed(2).asInstanceOf[Int], nClass)
-    }
-    else if(transformed(1)==2){
-        layers = Array[Int](nFeat, nClass)
-      }
-    val selected = new Array[Any](3)
-    var estimator : Estimator[_] = null
-    var selector = 0
-    if(transformed(0)==false){
-      selected(0)=transformed(1)
-      selected(1)=transformed(2)
-      selected(2)=transformed(3)
-      estimator = estimators(0)
-      selector = 1
-
-    }
-    else {
-      selected(0)=transformed(4)
-      selected(1)=transformed(5)
-      selected(2)=transformed(6)
-      estimator = estimators(1)
-      selector = 4
-    }*/
     val selected = transformed
     val selector = 0
     val estimator = estimatorS
-    //for (param<- params){
+    var i = 0
     for (param<- 0 until selected.length){
-/*      //TODO: Neural networks
-      if(param.name.equals("layers"))
-      {
-
-      }*/
-      //else {
-        //TODO: How to treat categorical etc.
         estimator.set(params(selector+param), selected(i))
         i += 1
-      //}
     }
-    //estimator.set(params(3),layers)
     val feedback = feedbackTransformations(points)
-//    println("Random points feedback: ")
-//    feedback.foreach(x=> println(x.toString))
 
-    val mlModel = estimator.fit(training).asInstanceOf[Model[_]] //TODO
-    //val mlModel = new OneVsRest().setClassifier(estimator.asInstanceOf[LinearSVC]).fit(training)
+    val mlModel = estimator.fit(training).asInstanceOf[Model[_]]
     val result = mlModel.transform(testing)
 
     //TODO: Depends on metric
     val error : Double = 1- evaluator.evaluate(result)
+
+    val end = System.currentTimeMillis()
+    println("Time for iteration: "+(end-init))
 
     println("Validation error achieved: " + error)
 
@@ -139,6 +95,7 @@ class SmboLoop (initialModel: SmboModel, estimatorS: Estimator[_], evaluator: Ev
 
   }
 
+  //Perform a single trial with the usual evaluation procedure (single training and validation)
   def trial(grid: DenseMatrix[Double]) : Unit = {
     val y = new DenseVector[Double](lossHistory.toArray)
     val x = new DenseMatrix(hyperHistory(0).length, hyperHistory.length, hyperHistory.toArray.flatten)
@@ -152,69 +109,18 @@ class SmboLoop (initialModel: SmboModel, estimatorS: Estimator[_], evaluator: Ev
     val init = System.currentTimeMillis()
     var i = 0
     val transformed = modelTransformations(suggestedPoint)
-//    println("Points transformed: ")
-//    transformed.foreach(x=> println(x.toString))
-    //TODO: Neural networks (784 or 780 first layer)
-/*var layers : Array[Int] = null
-    if(transformed(1)==6){
-      layers = Array[Int](nFeat, transformed(2).asInstanceOf[Int], transformed(3).asInstanceOf[Int],
-        transformed(4).asInstanceOf[Int], transformed(5).asInstanceOf[Int], nClass)
-    }
-    else if (transformed(1)==5){
-      layers = Array[Int](nFeat, transformed(2).asInstanceOf[Int], transformed(3).asInstanceOf[Int],
-        transformed(4).asInstanceOf[Int], nClass)
-    }
-    else if (transformed(1)==4){
-      layers = Array[Int](nFeat, transformed(2).asInstanceOf[Int], transformed(3).asInstanceOf[Int], nClass)
-    }
-    else if(transformed(1)==3){
-      layers = Array[Int](nFeat, transformed(2).asInstanceOf[Int], nClass)
-    }
-    else if(transformed(1)==2){
-      layers = Array[Int](nFeat, nClass)
-    }
-val selected = new Array[Any](3)
-    var estimator : Estimator[_] = null
-    var selector = 0
-    if(transformed(0)==false){
-      selected(0)=transformed(1)
-      selected(1)=transformed(2)
-      selected(2)=transformed(3)
-      estimator = estimators(0)
-      selector = 1
-
-    }
-    else {
-      selected(0)=transformed(4)
-      selected(1)=transformed(5)
-      selected(2)=transformed(6)
-      estimator = estimators(1)
-      selector = 4
-    }*/
-val selected = transformed
+    val selected = transformed
     val selector = 0
     val estimator = estimatorS
     //for (param<- params){
     for (param<- 0 until selected.length){
-      //TODO: Neural networks
-/*      if(param.name.equals("layers"))
-      {
-
-      }*/
-      //else {
-        //TODO: How to treat categorical etc.
         estimator.set(params(selector+param), selected(i))
         i += 1
-      //}
     }
-    //estimator.set(params(3),layers)
     val feedback = feedbackTransformations(suggestedPoint)
-    //println("Points feedback: ")
-    //feedback.foreach(x=> println(x.toString))
 
 
-    val mlModel = estimator.fit(training).asInstanceOf[Model[_]] //TODO
-    //val mlModel = new OneVsRest().setClassifier(estimator.asInstanceOf[LinearSVC]).fit(training)
+    val mlModel = estimator.fit(training).asInstanceOf[Model[_]]
     val result = mlModel.transform(testing)
 
     //TODO: Depends on metric
@@ -230,219 +136,8 @@ val selected = transformed
     lossHistory += error
   }
 
-  def shaTrial(grid: DenseMatrix[Double], subsamples: Array[Dataset[Row]], stagePoints: Array[Int]) : Unit = {
-    val y = new DenseVector[Double](lossHistory.toArray)
-    val x = new DenseMatrix(hyperHistory(0).length, hyperHistory.length, hyperHistory.toArray.flatten)
-    val initTop = System.currentTimeMillis()
-    model.fit(x, y)
-    var previousPoints = model.topNext(stagePoints(0),grid) //Get suggested points
-    val endTop = System.currentTimeMillis()
-    println("Time for suggestion: "+(endTop-initTop))
-    var finalError = 0.0
-    val init = System.currentTimeMillis()
-    for (i<- 0 until subsamples.length) { //Round i before halving
-      //      val initB = System.currentTimeMillis()
-      var pointResult = new Array[(DenseVector[Double], Double)](stagePoints(i))
-      //TODO: Using same subsample for every point, maybe take different ones partitioning to parallelize??
-      val initIter = System.currentTimeMillis()
-      val subsampledTraining = subsamples(i)
-      //      println("Subsample count is: "+subsampledTraining.count())
-      //      println("Subsample partitions is: "+subsampledTraining.rdd.getNumPartitions)
-      //      println ("iterations is: "+stagePoints(i))
-
-      def error(previousPoint: DenseVector[Double]) = Future {
-        val initPoint = System.currentTimeMillis()
-        val transformed = modelTransformations(previousPoint)
-        //        println("Points transformed: ")
-        //        transformed.foreach(x=> println(x.toString))
-        var i = 0
-        val pMap = new ParamMap()
-        /*//TODO: Neural networks (784 or 780 first layer)
-        var layers : Array[Int] = null
-        if(transformed(1)==6){
-          layers = Array[Int](nFeat, transformed(2).asInstanceOf[Int], transformed(3).asInstanceOf[Int],
-            transformed(4).asInstanceOf[Int], transformed(5).asInstanceOf[Int], nClass)
-        }
-        else if (transformed(1)==5){
-          layers = Array[Int](nFeat, transformed(2).asInstanceOf[Int], transformed(3).asInstanceOf[Int],
-            transformed(4).asInstanceOf[Int], nClass)
-        }
-        else if (transformed(1)==4){
-          layers = Array[Int](nFeat, transformed(2).asInstanceOf[Int], transformed(3).asInstanceOf[Int], nClass)
-        }
-        else if(transformed(1)==3){
-          layers = Array[Int](nFeat, transformed(2).asInstanceOf[Int], nClass)
-        }
-        else if(transformed(1)==2){
-          layers = Array[Int](nFeat, nClass)
-
-        }
-        val selected = new Array[Any](3)
-        var estimator : Estimator[_] = null
-        var selector = 0
-        if(transformed(0)==false){
-          selected(0)=transformed(1)
-          selected(1)=transformed(2)
-          selected(2)=transformed(3)
-          estimator = estimators(0)
-          selector = 1
-
-        }
-        else {
-          selected(0)=transformed(4)
-          selected(1)=transformed(5)
-          selected(2)=transformed(6)
-          estimator = estimators(1)
-          selector = 4
-        }*/
-        val selected = transformed
-        val selector = 0
-        val estimator = estimatorS
-        //for (param<- params){
-        for (param<- 0 until selected.length){
-          //TODO: Neural networks
-          /*      if(param.name.equals("layers"))
-                {
-
-                }*/
-          //else {
-          //TODO: How to treat categorical etc.
-          pMap.put(params(selector+param), selected(i))
-          i += 1
-          //}
-        }
-        //pMap.put(params(3),layers)
-        val itEstimator = estimator.copy(pMap)
-        //        val trainInit = System.currentTimeMillis()
-        //val mlModel = new OneVsRest().setClassifier(estimator.asInstanceOf[LinearSVC]).fit(training)
-        val mlModel = itEstimator.fit(subsampledTraining).asInstanceOf[Model[_]] //TODO
-        //        val trainEnd = System.currentTimeMillis()
-        //        println("Training takes: "+(trainEnd-trainInit))
-        //        val testInit = System.currentTimeMillis()
-        val result = mlModel.transform(testing)
-        val endPoint = System.currentTimeMillis()
-        println("Time for point: "+(endPoint-initPoint))
-        (1 - evaluator.evaluate(result))
-      } //TODO
-
-      def errorN(previousPoint: DenseVector[Double]) : Double ={
-        val initPoint = System.currentTimeMillis()
-        val transformed = modelTransformations(previousPoint)
-        //        println("Points transformed: ")
-        //        transformed.foreach(x=> println(x.toString))
-        var i = 0
-        val pMap = new ParamMap()
-        //TODO: Neural networks (784 or 780 first layer)
-       /* var layers : Array[Int] = null
-        if(transformed(1)==6){
-          layers = Array[Int](nFeat, transformed(2).asInstanceOf[Int], transformed(3).asInstanceOf[Int],
-            transformed(4).asInstanceOf[Int], transformed(5).asInstanceOf[Int], nClass)
-        }
-        else if (transformed(1)==5){
-          layers = Array[Int](nFeat, transformed(2).asInstanceOf[Int], transformed(3).asInstanceOf[Int],
-            transformed(4).asInstanceOf[Int], nClass)
-        }
-        else if (transformed(1)==4){
-          layers = Array[Int](nFeat, transformed(2).asInstanceOf[Int], transformed(3).asInstanceOf[Int], nClass)
-        }
-        else if(transformed(1)==3){
-          layers = Array[Int](nFeat, transformed(2).asInstanceOf[Int], nClass)
-        }
-        else if(transformed(1)==2){
-          layers = Array[Int](nFeat, nClass)
-        }
-       val selected = new Array[Any](3)
-        var estimator : Estimator[_] = null
-        var selector = 0
-        if(transformed(0)==false){
-          selected(0)=transformed(1)
-          selected(1)=transformed(2)
-          selected(2)=transformed(3)
-          estimator = estimators(0)
-          selector = 1
-
-        }
-        else {
-          selected(0)=transformed(4)
-          selected(1)=transformed(5)
-          selected(2)=transformed(6)
-          estimator = estimators(1)
-          selector = 4
-        }*/
-       val selected = transformed
-        val selector = 0
-        val estimator = estimatorS
-        //for (param<- params){
-        for (param<- 0 until selected.length){
-          //TODO: Neural networks
-          /*      if(param.name.equals("layers"))
-                {
-
-                }*/
-          //else {
-          //TODO: How to treat categorical etc.
-          pMap.put(params(selector+param), selected(i))
-          i += 1
-          //}
-        }
-        //pMap.put(params(3),layers)
-        val itEstimator = estimator.copy(pMap)
-        //        val trainInit = System.currentTimeMillis()
-        //val mlModel = new OneVsRest().setClassifier(estimator.asInstanceOf[LinearSVC]).fit(training)
-        val mlModel = itEstimator.fit(subsampledTraining).asInstanceOf[Model[_]] //TODO
-        //        val trainEnd = System.currentTimeMillis()
-        //        println("Training takes: "+(trainEnd-trainInit))
-        //        val testInit = System.currentTimeMillis()
-        val result = mlModel.transform(testing)
-        val endPoint = System.currentTimeMillis()
-        println("Time for point: "+(endPoint-initPoint))
-        (1 - evaluator.evaluate(result))
-      } //TODO
-//        val testEnd = System.currentTimeMillis()
-//        println("Testing takes: "+(testEnd-testInit))
-      val rangeSubsamples = 0 until stagePoints(i) toList
-
-      if(stagePoints(i)>1) {
-        val futureResult = rangeSubsamples.map(x => error(previousPoints(x)))
-        val futureErrors = Future.sequence(futureResult)
-        val errors = Await.result(futureErrors, Duration.Inf).toArray
-        for (t <- 0 until stagePoints(i)) {
-          pointResult(t) = (previousPoints(t), errors(t))
-        }
-      }
-      else{
-        pointResult(0) = (previousPoints(0), errorN(previousPoints(0)))
-      }
-      val endIter = System.currentTimeMillis()
-      println("Time for rung: "+ (endIter-initIter))
-      //      val endB = System.currentTimeMillis()
-      //      println("Bracket time:")
-      //      println(endB-initB)
-      //If not finished, halve taking best points
-      if(i+1<stagePoints.length) previousPoints = pointResult.sortBy(_._2).map(_._1).take(stagePoints(i+1))
-      else { //Rounds are finished, taking the best point (from the last round)
-        previousPoints=pointResult.sortBy(_._2).map(_._1).take(1)
-        finalError=pointResult.sortBy(_._2).map(_._2).take(1)(0)
-      }
-    }
-    val suggestedPoint = previousPoints(0)
-    println("Point suggested: ")
-    println(suggestedPoint.toString())
-    val end = System.currentTimeMillis()
-    println("Time for iteration: "+(end-init))
-
-    val feedback = feedbackTransformations(suggestedPoint)
-//    println("Points feedback: ")
-//    feedback.foreach(x=> println(x.toString))
-
-    println("Validation error achieved: " + finalError)
-
-    hyperHistory += feedback
-    lossHistory += finalError
-  }
-
-
-  def oldShaTrial(grid: DenseMatrix[Double], subsamples: Array[Dataset[Row]], stagePoints: Array[Int]) : Unit = {
+  //Perform a trial with an adaptive evaluation procedure (defined by subsamples and roundPoints)
+  def adaptiveEvalTrial(grid: DenseMatrix[Double], subsamples: Array[Dataset[Row]], stagePoints: Array[Int]) : Unit = {
     val y = new DenseVector[Double](lossHistory.toArray)
     val x = new DenseMatrix(hyperHistory(0).length, hyperHistory.length, hyperHistory.toArray.flatten)
     val initTop = System.currentTimeMillis()
@@ -453,44 +148,30 @@ val selected = transformed
     var finalError = 0.0
     val init = System.currentTimeMillis()
     for (i<- 0 until subsamples.length){ //Round i before halving
-      //      val initB = System.currentTimeMillis()
       val pointResult = new Array[(DenseVector[Double],Double)](stagePoints(i))
-      //TODO: Using same subsample for every point, maybe take different ones partitioning to parallelize??
       val initIter = System.currentTimeMillis()
       val subsampledTraining = subsamples(i)
-      //      println("Subsample count is: "+subsampledTraining.count())
-      //      println("Subsample partitions is: "+subsampledTraining.rdd.getNumPartitions)
-      //      println ("iterations is: "+stagePoints(i))
+
       for (j <- 0 until stagePoints(i)){ //Point j of this round
         val initPoint = System.currentTimeMillis()
         val transformed = modelTransformations(previousPoints(j))
-        //        println("Points transformed: ")
-        //        transformed.foreach(x=> println(x.toString))
         var i = 0
         for (param<- params){
           estimatorS.set(param,transformed(i))
           i+=1
         }
-        //        val trainInit = System.currentTimeMillis()
-        //val mlModel = new OneVsRest().setClassifier(estimator.asInstanceOf[LinearSVC]).fit(training)
-        val mlModel = estimatorS.fit(subsampledTraining).asInstanceOf[Model[_]] //TODO
-        //        val trainEnd = System.currentTimeMillis()
-        //        println("Training takes: "+(trainEnd-trainInit))
-        //        val testInit = System.currentTimeMillis()
+        val mlModel = estimatorS.fit(subsampledTraining).asInstanceOf[Model[_]]
         val result = mlModel.transform(testing)
-        val error = 1 -evaluator.evaluate(result) //TODO
-        //        val testEnd = System.currentTimeMillis()
-        //        println("Testing takes: "+(testEnd-testInit))
+
+        //TODO: Depends on metric
+        val error = 1 -evaluator.evaluate(result)
+
         pointResult(j) = (previousPoints(j),error)
         val endPoint = System.currentTimeMillis()
         println("Time for point: "+(endPoint-initPoint))
       }
       val endIter = System.currentTimeMillis()
-      println("Time for rung: "+ (endIter-initIter))
-      //      val endB = System.currentTimeMillis()
-      //      println("Bracket time:")
-      //      println(endB-initB)
-      //If not finished, halve taking best points
+      println("Time for round: "+ (endIter-initIter))
       if(i+1<stagePoints.length) previousPoints = pointResult.sortBy(_._2).map(_._1).take(stagePoints(i+1))
       else { //Rounds are finished, taking the best point (from the last round)
         previousPoints=pointResult.sortBy(_._2).map(_._1).take(1)
@@ -505,8 +186,100 @@ val selected = transformed
     println("Time for iteration: "+(end-init))
 
     val feedback = feedbackTransformations(suggestedPoint)
-    //    println("Points feedback: ")
-    //    feedback.foreach(x=> println(x.toString))
+
+    println("Validation error achieved: " + finalError)
+
+    hyperHistory += feedback
+    lossHistory += finalError
+  }
+  //Perform a trial with an adaptive evaluation procedure (defined by subsamples and roundPoints). Trains and validates
+  //every configuration of the same round in parallel (except, obviously, the last one with only one configuration).
+  //Can report benefits when the cluster resources are not fully utilized by one round
+  def parallelAdaptiveEvalTrial(grid: DenseMatrix[Double], subsamples: Array[Dataset[Row]], roundPoints: Array[Int])
+  : Unit = {
+    val y = new DenseVector[Double](lossHistory.toArray)
+    val x = new DenseMatrix(hyperHistory(0).length, hyperHistory.length, hyperHistory.toArray.flatten)
+    val initTop = System.currentTimeMillis()
+    model.fit(x, y)
+    var previousPoints = model.topNext(roundPoints(0),grid) //Get suggested points
+    val endTop = System.currentTimeMillis()
+    println("Time for suggestion: "+(endTop-initTop))
+    var finalError = 0.0
+    val init = System.currentTimeMillis()
+    for (i<- 0 until subsamples.length) { //Round i before halving
+      var pointResult = new Array[(DenseVector[Double], Double)](roundPoints(i))
+      val initIter = System.currentTimeMillis()
+      val subsampledTraining = subsamples(i)
+
+      def errorParallel(previousPoint: DenseVector[Double]) = Future {
+        val initPoint = System.currentTimeMillis()
+        val transformed = modelTransformations(previousPoint)
+        var i = 0
+        val pMap = new ParamMap()
+        val selected = transformed
+        val selector = 0
+        val estimator = estimatorS
+        for (param<- 0 until selected.length){
+          pMap.put(params(selector+param), selected(i))
+          i += 1
+        }
+        val itEstimator = estimator.copy(pMap)
+        val mlModel = itEstimator.fit(subsampledTraining).asInstanceOf[Model[_]]
+        val result = mlModel.transform(testing)
+        val endPoint = System.currentTimeMillis()
+        println("Time for point: "+(endPoint-initPoint))
+        //TODO: Depends on metric
+        (1 - evaluator.evaluate(result))
+      }
+
+      def errorSequential(previousPoint: DenseVector[Double]) : Double ={
+        val initPoint = System.currentTimeMillis()
+        val transformed = modelTransformations(previousPoint)
+        var i = 0
+        val pMap = new ParamMap()
+       val selected = transformed
+        val selector = 0
+        val estimator = estimatorS
+        for (param<- 0 until selected.length){
+          pMap.put(params(selector+param), selected(i))
+          i += 1
+        }
+        val itEstimator = estimator.copy(pMap)
+        val mlModel = itEstimator.fit(subsampledTraining).asInstanceOf[Model[_]]
+        val result = mlModel.transform(testing)
+        val endPoint = System.currentTimeMillis()
+        println("Time for point: "+(endPoint-initPoint))
+        //TODO: Depends on metric
+        (1 - evaluator.evaluate(result))
+      }
+      val rangeSubsamples = 0 until roundPoints(i) toList
+
+      if(roundPoints(i)>1) {
+        val futureResult = rangeSubsamples.map(x => errorParallel(previousPoints(x)))
+        val futureErrors = Future.sequence(futureResult)
+        val errors = Await.result(futureErrors, Duration.Inf).toArray
+        for (t <- 0 until roundPoints(i)) {
+          pointResult(t) = (previousPoints(t), errors(t))
+        }
+      }
+      else{
+        pointResult(0) = (previousPoints(0), errorSequential(previousPoints(0)))
+      }
+      val endIter = System.currentTimeMillis()
+      println("Time for round: "+ (endIter-initIter))
+      if(i+1<roundPoints.length) previousPoints = pointResult.sortBy(_._2).map(_._1).take(roundPoints(i+1))
+      else { //Rounds are finished, taking the best point (from the last round)
+        previousPoints=pointResult.sortBy(_._2).map(_._1).take(1)
+        finalError=pointResult.sortBy(_._2).map(_._2).take(1)(0)
+      }
+    }
+    val suggestedPoint = previousPoints(0)
+    println("Point suggested: ")
+    println(suggestedPoint.toString())
+    val end = System.currentTimeMillis()
+    println("Time for iteration: "+(end-init))
+
+    val feedback = feedbackTransformations(suggestedPoint)
 
     println("Validation error achieved: " + finalError)
 
@@ -514,11 +287,9 @@ val selected = transformed
     lossHistory += finalError
   }
 
-  //Returns best combination of hyperparameters and their loss
+  //Returns best combination of hyperparameters found so far and their loss
   def getBest() : (Array[Double], Double) = {
     val best = argmin(lossHistory.toArray)
-    println("Best is: ")
-    println(DenseVector(hyperHistory(best)).toString)
     return (hyperHistory(best),lossHistory(best))
   }
 }

@@ -4,17 +4,16 @@ import breeze.linalg.argmax
 
 object TransformationUtils {
 
-  //Transforming numbers in the 0-1 range resulting from the surrogate models to what is going to be used in the
-  //learning algorithm
+  //Transforming numbers in the 0-1 range resulting from the surrogate models to values used in the learning algorithm
 
-
+  //Simple range transformation
   def rangeTransformation(input: Double, initRange: Double, endRange: Double) : Double = {
     if (endRange < initRange){
       throw new Exception("The start of a range cannot be bigger than the end")}
     return initRange + (endRange-initRange)*input
   }
 
-  //CAUTION: The start of a logarithmic range has to be bigger than 0
+  //Transform to logarithmic scale
   def logarithmicTransformation(input: Double, initRange: Double, endRange: Double) : Double = {
     if (endRange < initRange){
       throw new Exception("The start of a range cannot be bigger than the end")}
@@ -24,17 +23,20 @@ object TransformationUtils {
   return math.pow(10,(math.log10(endRange)-math.log10(initRange))*input+math.log10(initRange))
   }
 
+  //Transformation for boolean variables
   def binaryTransformation(input: Double) : Boolean = {
     if(input<0.5) return false else return true
   }
 
+  //Transformation for integer variables
   def integerTransformation(input: Double, numberInt: Int, initInteger: Int) : Int = {
     val stepSize = (1.0/numberInt)+1E-8
     val bucket = math.floor(input/stepSize).toInt
     return initInteger+bucket
   }
 
-  //For Spearmint
+  //Categorical transformation for Spearmint
+  //TODO: Test, it has not been used so far
   def categoryTransformation (inputCat: Array[Double], categories: Array[Any]) : Any = {
     val result = Array[Double](inputCat.length)
     val best = argmax(inputCat)
@@ -42,29 +44,8 @@ object TransformationUtils {
   }
 
 
-  //Transforming the numbers in the 0-1 range resulting from the surrogate models to what is going to be used as
-  //feedback. Useful for conditional hyperparameters to avoid noise, not recommendable to use for binary and
-  // similar hyperparameters because the function can learn the discretization of the space anyway if they are used.
+  //Transforming the numbers in the 0-1 range resulting from the surrogate models to what is going to be returned as
+  //feedback. Useful for imputing conditional hyperparameters to avoid noise.
 
   def middlePointTransformation(input: Double) : Double = 0.5
-
-  //NOT USE FROM HERE NOW!!
-
-  def binaryFeedbackTransformation(input: Double) : Double = {
-    if(input<0.5) return 0.0 else return 1.0
-  }
-
-  def integerFeedbackTransformation(input: Double, numberInt: Int) : Double = {
-    val stepSize = (1.0/numberInt)+1E-8
-    val bucket = math.floor(input/stepSize).toInt
-    //Middle of the range
-    return stepSize*bucket+stepSize/2.0
-  }
-
-  def categoryTransformation (inputCat: Array[Double]) : Array[Double] = {
-    val result = Array.fill(inputCat.length)(0.0)
-    val best = argmax(inputCat)
-    result(best) = 1.0
-    return result
-  }
 }

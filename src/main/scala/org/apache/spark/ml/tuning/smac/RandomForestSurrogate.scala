@@ -1,18 +1,15 @@
 package org.apache.spark.ml.tuning.smac
 
 import breeze.linalg.{DenseMatrix, DenseVector, argmax}
-import breeze.numerics.{exp, log, sqrt}
 import breeze.stats.distributions.Gaussian
-import org.apache.spark.ml.feature.{VectorAssembler, VectorIndexer, VectorIndexerModel}
-import org.apache.spark.ml.linalg.{VectorUDT, Vectors}
-import org.apache.spark.ml.regression.{RandomForestRegressionModel, RandomForestRegressor, RandomForestSMACRegressionModel, RandomForestSMACRegressor}
+import org.apache.spark.ml.feature.VectorAssembler
+import org.apache.spark.ml.regression.{ RandomForestSMACRegressionModel, RandomForestSMACRegressor}
 import org.apache.spark.ml.tuning.{AcquisitionFunction, SmboModel}
-import org.apache.spark.sql.expressions.UserDefinedFunction
-import org.apache.spark.sql.{DataFrame, Dataset, Row, SQLContext}
+import org.apache.spark.sql.{ Row, SQLContext}
 import org.apache.spark.sql.functions.{udf, _}
 import org.apache.spark.sql.types.{DoubleType, StructField, StructType}
 
-import scala.collection.mutable.{ArrayBuffer, ListBuffer}
+import scala.collection.mutable.ArrayBuffer
 import scala.util.Random
 
 /**
@@ -32,10 +29,10 @@ import scala.util.Random
 //Category Index for neighbour search: 0=> continous, positive => number of categories, negative => Number of integers
 class RandomForestSurrogate (ctxt: SQLContext, categoryIndex: Array[Int] = null) extends SmboModel {
 
-  //SMAC parameters (fixed so far)
+  //SMAC parameters
   val numTrees = 10
   val splitRatio =   5.0/6.0
-  val maxDepth = 20 //FROM SMAC DOC
+  val maxDepth = 20
   val minInstancePerNode = 3
 
 
@@ -68,7 +65,7 @@ class RandomForestSurrogate (ctxt: SQLContext, categoryIndex: Array[Int] = null)
     var featMap = Map.empty[Int, Int]
     for (i<-0 until categories.length){
       //Taking the minimum between number of categories and training examples to avoid errors
-      if(categories(i)>0) featMap += (i->categories(i))//(i->math.min(categories(i),ytrain.length))
+      if(categories(i)>0) featMap += (i->categories(i))
     }
 
     rf.setCategoricalFeatures(featMap)
@@ -179,7 +176,7 @@ class RandomForestSurrogate (ctxt: SQLContext, categoryIndex: Array[Int] = null)
   /**
   Search for the top proposals according to the random forest model. It is the same method as next but returning
     top N proposals instead of only the best one.
-    Not using the variable iterations
+    Not incrementing the variable iterations
     **/
   def topNext(n: Int, candidates: DenseMatrix[Double]): Array[DenseVector[Double]] = {
 
@@ -193,8 +190,6 @@ class RandomForestSurrogate (ctxt: SQLContext, categoryIndex: Array[Int] = null)
     val rdd = ctxt.sparkContext.parallelize(rowArr,1)
     val ds = ctxt.createDataFrame(rdd,schemaNoLabel)
     val testDs= assembler.transform(ds)
-
-    //Take the best points and order according to EI
 
     //Including a column with the minimum value to be used in the UDF that calculates the EI in a parallel manner
     val result = model.transform(testDs).withColumn("min",lit(min))
@@ -314,8 +309,5 @@ class RandomForestSurrogate (ctxt: SQLContext, categoryIndex: Array[Int] = null)
 
   //Defining UDF to calculate expected improvement on a dataset
   val eiUDF = udf((mean: Double, variance: Double, min: Double) => AcquisitionFunction.expectedImprovement(mean,variance,min))
-  /*if(!SH){ eiUDF = udf((mean: Double, variance: Double, min: Double) => AcquisitionFunction.expectedImprovement(mean,variance,min))}
-  else {eiUDF = udf((mean: Double, variance: Double, min: Double) => AcquisitionFunction.ucb(mean,variance))}
-*/
 
 }
