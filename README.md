@@ -1,12 +1,12 @@
 # Hyperparameter optimization in Apache Spark
-Code from my master's thesis, "Hyperparameter optimization for large-scale machine learning"
+Code from my master's thesis, **"Hyperparameter optimization for large-scale machine learning"**
 
 Hyperparameter optimization algorithms implemented:
-* Grid search: In GridSurrogate.scala
-* Random search: In RandomSurrogate.scala
-* SMAC: In smac/RandomForestSurrogate.scala
-* Spearmint: In spearmint/GaussianProcessSurrogate.scala
-* SH, RGH and BGH: Using the adaptiveEvalTrail or parallelAdaptiveEvalTrial functions of SmboLoop.scala with different configurations
+* *Grid search*: In GridSurrogate.scala
+* *Random search*: In RandomSurrogate.scala
+* *SMAC*: In smac/RandomForestSurrogate.scala
+* *Spearmint*: In spearmint/GaussianProcessSurrogate.scala
+* *SH*, *RGH* and *BGH*: Using the adaptiveEvalTrial or parallelAdaptiveEvalTrial functions of SmboLoop.scala with different configurations
 
 SmboModel.scala serves as a common interface to all the hyperparameter optimization algorithms.
 
